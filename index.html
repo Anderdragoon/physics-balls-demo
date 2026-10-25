@@ -1,1 +1,239 @@
-$(cat /tmp/physics-balls-inline.html)
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>物理模拟球 · Interactive Physics Balls</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #0f0f1a;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #eee;
+    touch-action: none;
+  }
+  #c {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .ui {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    z-index: 10;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(8px);
+    padding: 12px 16px;
+    border-radius: 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    max-width: 260px;
+  }
+  .ui strong { color: #7dd3fc; }
+  #reset-btn {
+    margin-top: 10px;
+    padding: 6px 14px;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  #reset-btn:hover { background: #2563eb; }
+  .hint {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    pointer-events: none;
+    background: rgba(0,0,0,0.5);
+    padding: 8px 16px;
+    border-radius: 999px;
+    font-size: 13px;
+    opacity: 0.9;
+  }
+</style>
+</head>
+<body>
+<div class="ui">
+  <strong>物理模拟球</strong><br>
+  点击空白处添加新球<br>
+  拖拽任意球移动<br>
+  重力 · 碰撞 · 弹性
+  <br>
+  <button id="reset-btn">重置场景</button>
+</div>
+<div class="hint">点击添加 · 拖拽移动 · 重置可恢复初始</div>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let balls = [];
+let mouse = { x: 0, y: 0, down: false, dragging: null };
+
+const colors = ['#ef4444','#f97316','#eab308','#22c55e','#06b6d4','#3b82f6','#8b5cf6','#ec4899','#f43f5e','#14b8a6','#a855f7','#10b981'];
+
+function resize() {
+  canvas.width = window.innerWidth * (window.devicePixelRatio || 1);
+  canvas.height = window.innerHeight * (window.devicePixelRatio || 1);
+  canvas.style.width = window.innerWidth + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+  ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+function createBall(x, y, r) {
+  return {
+    x, y, r,
+    vx: (Math.random() - 0.5) * 2,
+    vy: (Math.random() - 0.5) * 2,
+    color: colors[Math.floor(Math.random() * colors.length)],
+    mass: r * r
+  };
+}
+
+function spawnInitial() {
+  balls = [];
+  for (let i = 0; i < 30; i++) {
+    const r = 14 + Math.random() * 18;
+    balls.push(createBall(
+      60 + Math.random() * (window.innerWidth - 120),
+      40 + Math.random() * Math.min(300, window.innerHeight * 0.35),
+      r
+    ));
+  }
+}
+
+function reset() {
+  spawnInitial();
+}
+
+function update() {
+  const gravity = 0.35;
+  const bounce = 0.78;
+  const friction = 0.998;
+
+  for (const b of balls) {
+    if (b === mouse.dragging) continue;
+
+    b.vy += gravity;
+    b.vx *= friction;
+    b.vy *= friction;
+    b.x += b.vx;
+    b.y += b.vy;
+
+    // walls
+    if (b.x - b.r < 0) { b.x = b.r; b.vx = Math.abs(b.vx) * bounce; }
+    if (b.x + b.r > window.innerWidth) { b.x = window.innerWidth - b.r; b.vx = -Math.abs(b.vx) * bounce; }
+    if (b.y - b.r < 0) { b.y = b.r; b.vy = Math.abs(b.vy) * bounce; }
+    if (b.y + b.r > window.innerHeight) { b.y = window.innerHeight - b.r; b.vy = -Math.abs(b.vy) * bounce; }
+  }
+
+  // simple collisions
+  for (let i = 0; i < balls.length; i++) {
+    for (let j = i + 1; j < balls.length; j++) {
+      const a = balls[i], b = balls[j];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy);
+      const min = a.r + b.r;
+      if (dist < min && dist > 0) {
+        const nx = dx / dist, ny = dy / dist;
+        const overlap = (min - dist) / 2;
+        a.x -= nx * overlap; a.y -= ny * overlap;
+        b.x += nx * overlap; b.y += ny * overlap;
+
+        const relVx = b.vx - a.vx, relVy = b.vy - a.vy;
+        const relDot = relVx * nx + relVy * ny;
+        if (relDot < 0) {
+          const impulse = relDot * 1.6 / (1/a.mass + 1/b.mass);
+          a.vx += impulse / a.mass * nx;
+          a.vy += impulse / a.mass * ny;
+          b.vx -= impulse / b.mass * nx;
+          b.vy -= impulse / b.mass * ny;
+        }
+      }
+    }
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+  for (const b of balls) {
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.fillStyle = b.color;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  requestAnimationFrame(loop);
+}
+
+function loop() {
+  update();
+  draw();
+}
+
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  return { x: clientX - rect.left, y: clientY - rect.top };
+}
+
+function onDown(e) {
+  const pos = getPos(e);
+  mouse.down = true;
+  mouse.dragging = null;
+  for (const b of balls) {
+    const dx = pos.x - b.x, dy = pos.y - b.y;
+    if (dx*dx + dy*dy < b.r * b.r) {
+      mouse.dragging = b;
+      break;
+    }
+  }
+  if (!mouse.dragging) {
+    const r = 15 + Math.random() * 16;
+    balls.push(createBall(pos.x, pos.y, r));
+  }
+  e.preventDefault();
+}
+
+function onMove(e) {
+  if (!mouse.down || !mouse.dragging) return;
+  const pos = getPos(e);
+  mouse.dragging.x = pos.x;
+  mouse.dragging.y = pos.y;
+  mouse.dragging.vx = 0;
+  mouse.dragging.vy = 0;
+  e.preventDefault();
+}
+
+function onUp() {
+  mouse.down = false;
+  mouse.dragging = null;
+}
+
+canvas.addEventListener('mousedown', onDown);
+canvas.addEventListener('mousemove', onMove);
+canvas.addEventListener('mouseup', onUp);
+canvas.addEventListener('mouseleave', onUp);
+canvas.addEventListener('touchstart', onDown, { passive: false });
+canvas.addEventListener('touchmove', onMove, { passive: false });
+canvas.addEventListener('touchend', onUp);
+
+document.getElementById('reset-btn').addEventListener('click', reset);
+
+spawnInitial();
+loop();
+</script>
+</body>
+</html>
